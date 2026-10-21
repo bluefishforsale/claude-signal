@@ -16,6 +16,8 @@ signal-cli and signal-mcp are independent projects, not affiliated with Signal. 
 
 ## Install (macOS and Linux)
 
+On Windows, see [Windows (WSL2)](#windows-wsl2) below.
+
 On macOS you only need this repo. If [Homebrew](https://brew.sh) is missing, the installer runs Homebrew's official installer first (it asks for your password and may pull in the Xcode Command Line Tools), then installs signal-cli, qrencode, sqlcipher and [uv](https://docs.astral.sh/uv/) through it. On Linux you need uv and `qrencode` (`sudo apt install qrencode`), plus `sqlcipher` and `libsecret-tools` if you want your Signal Desktop history imported. The installer handles Python 3.12 through uv.
 
 ```bash
@@ -49,6 +51,41 @@ A newly linked device only receives messages sent after it was linked. Signal do
 That makes Signal Desktop's history the limit. The import reaches back as far as Desktop's history does, typically to when you linked Desktop, and messages that exist only on your phone can't be reached. To check how far back you got, run `signal-mcp store-stats` and look at `Oldest`. To pick up messages Desktop received later, run `signal-mcp sync-desktop`.
 
 The import needs sqlcipher built on SQLite 3.38 or newer, because Desktop's schema uses the `->>` JSON operator. Older builds fail with `malformed database schema (messages) - near ">"`. The installer checks for this before importing, and on macOS it installs Homebrew's current sqlcipher, which signal-mcp prefers over an older copy in `/usr/local/bin`.
+
+## Windows (WSL2)
+
+signal-mcp doesn't run natively on Windows: its daemon handling relies on Unix tools like `lsof`, and its background service has no Windows support. So on Windows it runs inside WSL2 (Ubuntu), and Claude Desktop and Claude Code reach into WSL to launch it.
+
+Download [`install-windows.ps1`](install-windows.ps1) and run it from PowerShell:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File install-windows.ps1
+```
+
+If WSL or Ubuntu isn't installed yet, the script says so and asks you to rerun it from an Administrator PowerShell, which installs WSL2 with Ubuntu. Windows may want a restart, and Ubuntu will ask you to create a Linux username and password on first launch. Then run the script again from a normal PowerShell to finish.
+
+From there it does the same job as the macOS and Linux install, just inside Ubuntu. It installs the packages it needs (sudo asks for the Linux password you just made), clones this repo into `~/claude-signal`, and runs `install.sh`, which shows the QR code to scan with your phone. The other steps work like this on Windows:
+
+- History comes from Signal Desktop for Windows, if it's installed. The installer reads its database through `/mnt/c` and asks Windows (through `powershell.exe`, as your Windows user) to unlock the database key. You can rerun the import later with `wsl -- ~/.local/share/claude-signal/venv/bin/python ~/claude-signal/wsl_history.py "/mnt/c/Users/<you>/AppData/Roaming/Signal"`.
+- Claude Desktop gets an entry in `%APPDATA%\Claude\claude_desktop_config.json` that launches the server through `wsl.exe`. Quit and reopen Desktop afterwards.
+- Claude Code is registered wherever it's installed: natively on Windows, inside Ubuntu, or both.
+
+Every `install.sh` option passes through, e.g. `install-windows.ps1 --readonly` or `install-windows.ps1 --bot-number +15551234567`.
+
+The entry Windows-side clients get looks like this. `-e` skips the Linux login shell, so the `PATH` is spelled out for signal-mcp to find signal-cli:
+
+```json
+{
+  "command": "wsl.exe",
+  "args": ["-d", "Ubuntu", "-e", "/usr/bin/env", "PATH=/home/you/.local/bin:/usr/local/bin:/usr/bin:/bin", "/home/you/.local/bin/signal-mcp", "serve"]
+}
+```
+
+WSL stops Ubuntu a little while after nothing is running in it, which also stops signal-cli's daemon. That's fine, because Claude starts both again the next time it calls a Signal tool. It does mean the first call after a pause takes a few seconds longer.
+
+Two honest caveats. This path hasn't been run end to end on a real Windows machine yet. The key decryption is unit-tested against the format Electron uses on Windows, and CI runs the Ubuntu side of the bootstrap, but WSL interop with real Windows installs of Claude and Signal is untested, so please report rough edges. And if your Claude Desktop keeps its config somewhere other than `%APPDATA%\Claude`, the installer won't find it; add the entry above by hand.
+
+To uninstall, run `wsl -- ~/claude-signal/uninstall.sh`. It also removes the Windows-side Claude registrations.
 
 ## Choose whose account the agent uses
 

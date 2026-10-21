@@ -1,2 +1,6 @@
 .envrc
 .DS_Store
+# Machine-local Claude Code state (approvals, worktrees) never belongs in a public repo.
+.claude/*
+!.claude/settings.json
+__pycache__/

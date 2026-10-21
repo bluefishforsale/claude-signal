@@ -123,12 +123,15 @@ install_signal_mcp() {
 # A newly linked device only receives messages from now on, so Signal Desktop's
 # local database is the only source of older history on this machine.
 import_history() {
-  local desktop_db
-  case "$(uname -s)" in
-    Darwin) desktop_db="$HOME/Library/Application Support/Signal/sql/db.sqlite" ;;
-    *) desktop_db="${XDG_CONFIG_HOME:-$HOME/.config}/Signal/sql/db.sqlite" ;;
-  esac
-  if [[ ! -f "$desktop_db" ]]; then
+  local desktop_dir windows=0
+  if is_wsl && [[ -f "$(win_appdata)/Signal/sql/db.sqlite" ]]; then
+    desktop_dir="$(win_appdata)/Signal" windows=1
+  elif [[ "$(uname -s)" == Darwin ]]; then
+    desktop_dir="$HOME/Library/Application Support/Signal"
+  else
+    desktop_dir="${XDG_CONFIG_HOME:-$HOME/.config}/Signal"
+  fi
+  if [[ ! -f "$desktop_dir/sql/db.sqlite" ]]; then
     log "Signal Desktop not found; history starts from when this device was linked"
     return
   fi
@@ -147,11 +150,17 @@ import_history() {
     warn "$sqlcipher is built on SQLite older than 3.38 and can't read Signal Desktop's database; upgrade it, then run: signal-mcp import-desktop"
     return
   fi
-  log "Importing message history from Signal Desktop (macOS asks for Keychain access; click Allow)"
-  # Optional and rerunnable, so a failure (most often the Keychain prompt timing
-  # out after 30s unanswered) shouldn't stop the Claude registrations after it.
-  signal-mcp import-desktop ||
-    warn "history import failed; rerun it any time with: signal-mcp import-desktop"
+  # Optional and rerunnable, so a failure (most often the macOS Keychain prompt
+  # timing out after 30s unanswered) shouldn't stop the Claude registrations.
+  if ((windows)); then
+    log "Importing message history from Signal Desktop on Windows ($desktop_dir)"
+    "$venv/bin/python" "$here/wsl_history.py" "$desktop_dir" ||
+      warn "history import failed; rerun it any time with: $venv/bin/python $here/wsl_history.py '$desktop_dir'"
+  else
+    log "Importing message history from Signal Desktop (macOS asks for Keychain access; click Allow)"
+    signal-mcp import-desktop ||
+      warn "history import failed; rerun it any time with: signal-mcp import-desktop"
+  fi
 }
 
 case "$(uname -s)" in
