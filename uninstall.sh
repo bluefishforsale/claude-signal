@@ -9,7 +9,9 @@ case "$(uname -s)" in
   *) data_dir="${XDG_DATA_HOME:-$HOME/.local/share}/claude-signal" ;;
 esac
 
-command -v signal-mcp >/dev/null && signal-mcp uninstall-service || true
+if command -v signal-mcp >/dev/null; then
+  signal-mcp uninstall-service
+fi
 # Only a registration install.sh made; a hand-added 'signal' server is left alone.
 if command -v claude >/dev/null &&
    claude mcp get signal 2>/dev/null | grep -qF "$bin_dir/signal-mcp"; then
