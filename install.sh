@@ -10,13 +10,13 @@ here="$(cd "$(dirname "$0")" && pwd)"
 # shellcheck source=lib.sh
 . "$here/lib.sh"
 
-do_link=1 do_service=0 do_claude=1 do_desktop=1 readonly_mode=0
+do_link=1 do_history=1 do_service=0 do_claude=1 do_desktop=1 readonly_mode=0
 device_name="$(hostname -s)" bot_number="" voice=()
 
 usage() {
   cat <<EOF
 usage: $0 [--name DEVICE] [--bot-number +E164 [--voice]] [--readonly]
-          [--service] [--no-link] [--no-claude] [--no-desktop]
+          [--service] [--no-link] [--no-history] [--no-claude] [--no-desktop]
 
   --name DEVICE   linked-device name on your phone, or the bot's profile name (default: $device_name)
   --bot-number N  register N as the agent's own Signal account instead of linking yours
@@ -24,6 +24,7 @@ usage: $0 [--name DEVICE] [--bot-number +E164 [--voice]] [--readonly]
   --readonly      register the MCP server with SIGNAL_MCP_READONLY=1 (no send/edit/delete)
   --service       install signal-mcp's background capture service (see README first)
   --no-link       skip linking or registering a Signal account
+  --no-history    skip importing older messages from Signal Desktop
   --no-claude     skip registering the server with Claude Code
   --no-desktop    skip adding the server to Claude Desktop (macOS)
 EOF
@@ -36,6 +37,7 @@ while (($#)); do
     --voice) voice=(--voice) ;;
     --readonly) readonly_mode=1 ;;
     --no-link) do_link=0 ;;
+    --no-history) do_history=0 ;;
     --service) do_service=1 ;;
     --no-claude) do_claude=0 ;;
     --no-desktop) do_desktop=0 ;;
@@ -46,9 +48,22 @@ while (($#)); do
 done
 
 install_signal_cli_macos() {
-  command -v brew >/dev/null || die "Homebrew is required on macOS: https://brew.sh"
+  if ! command -v brew >/dev/null; then
+    log "Installing Homebrew (it asks for your password and may install the Xcode Command Line Tools)"
+    /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
+    # A fresh install isn't on PATH until the user's shell profile is updated.
+    local brew_bin
+    for brew_bin in /opt/homebrew/bin/brew /usr/local/bin/brew; do
+      [[ -x "$brew_bin" ]] && eval "$("$brew_bin" shellenv)" && break
+    done
+    command -v brew >/dev/null || die "Homebrew install didn't finish; see https://brew.sh"
+  fi
   brew list signal-cli >/dev/null 2>&1 || brew install signal-cli
   brew list qrencode >/dev/null 2>&1 || brew install qrencode
+  # For the Signal Desktop history import. Homebrew's comes first in
+  # signal-mcp's lookup, so it also shadows an older /usr/local copy.
+  brew list sqlcipher >/dev/null 2>&1 || brew install sqlcipher
+  command -v uv >/dev/null || brew install uv
   # NOTE: Homebrew only ships the latest signal-cli, so the pin is advisory here.
   # A mismatch means you're running a version nobody audited for this repo.
   local have
@@ -105,6 +120,37 @@ install_signal_mcp() {
   ln -sf "$venv/bin/signal-mcp" "$bin_dir/signal-mcp"
 }
 
+# A newly linked device only receives messages from now on, so Signal Desktop's
+# local database is the only source of older history on this machine.
+import_history() {
+  local desktop_db
+  case "$(uname -s)" in
+    Darwin) desktop_db="$HOME/Library/Application Support/Signal/sql/db.sqlite" ;;
+    *) desktop_db="${XDG_CONFIG_HOME:-$HOME/.config}/Signal/sql/db.sqlite" ;;
+  esac
+  if [[ ! -f "$desktop_db" ]]; then
+    log "Signal Desktop not found; history starts from when this device was linked"
+    return
+  fi
+  # Same lookup order as signal-mcp's _find_sqlcipher.
+  local sqlcipher
+  for sqlcipher in /opt/homebrew/bin/sqlcipher /usr/local/bin/sqlcipher "$(command -v sqlcipher || true)"; do
+    [[ -x "$sqlcipher" ]] && break
+  done
+  if [[ ! -x "$sqlcipher" ]]; then
+    warn "sqlcipher not found, skipping history import (Linux: sudo apt install sqlcipher libsecret-tools)"
+    return
+  fi
+  # NOTE: Signal Desktop's schema uses the ->> JSON operator (SQLite 3.38+).
+  # An older sqlcipher fails the import with 'malformed database schema'.
+  if ! echo "select json('{\"a\":1}') ->> '\$.a';" | "$sqlcipher" :memory: >/dev/null 2>&1; then
+    warn "$sqlcipher is built on SQLite older than 3.38 and can't read Signal Desktop's database; upgrade it, then run: signal-mcp import-desktop"
+    return
+  fi
+  log "Importing message history from Signal Desktop (macOS asks for Keychain access; click Allow)"
+  signal-mcp import-desktop
+}
+
 case "$(uname -s)" in
   Darwin) install_signal_cli_macos ;;
   Linux) install_signal_cli_linux ;;
@@ -128,6 +174,7 @@ fi
 # MCP server refuses to start a daemon (client.py ensure_daemon) while the
 # watcher stops any daemon on every poll, so every daemon-backed tool fails with
 # "signal-cli daemon not running". Flip the default once upstream fixes that.
+((do_history)) && import_history
 ((do_service)) && signal-mcp install-service
 ((do_claude)) && register_claude "$readonly_mode"
 ((do_desktop)) && register_desktop "$readonly_mode"

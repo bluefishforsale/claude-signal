@@ -8,7 +8,10 @@ name="${1:-$(hostname -s)}"
 command -v signal-cli >/dev/null || { echo "error: signal-cli not on PATH" >&2; exit 1; }
 command -v qrencode >/dev/null || { echo "error: qrencode not on PATH (brew install qrencode / apt install qrencode)" >&2; exit 1; }
 
-if signal-cli listAccounts 2>/dev/null | grep -q '+'; then
+# NOTE: read the file rather than run `signal-cli listAccounts`, which blocks
+# forever on the account lock while a signal-cli daemon is running.
+accounts="$HOME/.local/share/signal-cli/data/accounts.json"
+if grep -qs '"number" *: *"+' "$accounts"; then
   echo "==> signal-cli already has an account linked, skipping"
   exit 0
 fi

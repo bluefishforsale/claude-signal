@@ -16,7 +16,7 @@ signal-cli and signal-mcp are independent projects, not affiliated with Signal. 
 
 ## Install (macOS and Linux)
 
-You need [uv](https://docs.astral.sh/uv/getting-started/installation/), plus [Homebrew](https://brew.sh) on macOS or `qrencode` (`sudo apt install qrencode`) on Linux. The installer handles Python 3.12 through uv.
+On macOS you only need this repo. If [Homebrew](https://brew.sh) is missing, the installer runs Homebrew's official installer first (it asks for your password and may pull in the Xcode Command Line Tools), then installs signal-cli, qrencode, sqlcipher and [uv](https://docs.astral.sh/uv/) through it. On Linux you need uv and `qrencode` (`sudo apt install qrencode`), plus `sqlcipher` and `libsecret-tools` if you want your Signal Desktop history imported. The installer handles Python 3.12 through uv.
 
 ```bash
 git clone https://github.com/bluefishforsale/claude-signal
@@ -24,11 +24,11 @@ cd claude-signal
 ./install.sh
 ```
 
-That installs signal-cli and signal-mcp, prints a QR code to link your Signal account, and registers the server with both Claude Code and Claude Desktop (if Desktop is installed). Restart whichever you use and ask it to "check my Signal messages".
+That installs signal-cli and signal-mcp, prints a QR code to link your Signal account, imports your older messages from Signal Desktop if it's installed, and registers the server with both Claude Code and Claude Desktop (if Desktop is installed). Restart whichever you use and ask it to "check my Signal messages".
 
 The installer is safe to rerun, since every step checks whether it's already done. Its flags:
 
-`--readonly` registers the server with `SIGNAL_MCP_READONLY=1`, which hides every tool that sends, edits, deletes, or changes settings. `--name DEVICE` sets the name your phone shows under Linked devices (defaults to the hostname). `--no-link`, `--no-claude`, and `--no-desktop` skip those steps, for example if you only want the CLI.
+`--readonly` registers the server with `SIGNAL_MCP_READONLY=1`, which hides every tool that sends, edits, deletes, or changes settings. `--name DEVICE` sets the name your phone shows under Linked devices (defaults to the hostname). `--no-link`, `--no-history`, `--no-claude`, and `--no-desktop` skip those steps, for example if you only want the CLI.
 
 `--service` also installs signal-mcp's background capture service, which records messages while Claude isn't running. It's off by default because in signal-mcp 1.43.3 it breaks the MCP server. With the service installed, the server refuses to start signal-cli's daemon, and the service's watcher stops any daemon it finds every few seconds, so every tool that needs the daemon (sending, contacts, groups) fails with "signal-cli daemon not running". Without the service, the server starts the daemon itself the first time Claude needs it, and Signal's servers queue messages for an offline linked device and deliver them when it next connects (within Signal's retention window, which is limited), so the cost is mainly that messages aren't in local search until Claude has run. `./uninstall.sh` removes the service if you installed it.
 
@@ -41,6 +41,14 @@ The installer is safe to rerun, since every step checks whether it's already don
 This runs signal-mcp's own `signal-mcp doctor` (signal-cli, account, daemon, message capture), then checks that Claude Code and Claude Desktop each have the `signal` server registered, and adds it to whichever one is missing it. It's the fix if you installed Desktop after running the installer, or if a config got reset. It never touches an existing `signal` entry, so a server you've configured by hand stays as you left it. Any registration it adds has full access, unless you pass `--readonly`.
 
 Two of upstream's checks give misleading results with this setup. "Daemon reachable" fails until Claude has used the server once, because nothing starts the daemon before then. Once the daemon is running, "Receive round-trip works" fails with "Receive command cannot be used if messages are already being received", because the check asks signal-cli for messages the daemon is already receiving. Claude's own message tools work fine either way.
+
+## Message history
+
+A newly linked device only receives messages sent after it was linked. Signal doesn't hand history to signal-cli, so on its own the agent would only see messages from install day onward. The way around that is Signal Desktop, which keeps its own encrypted copy of your history. If Signal Desktop is on the same machine, the installer runs `signal-mcp import-desktop`, which decrypts that database with the key from your Keychain (macOS asks you to allow this) or keyring (Linux, where the keyring must be unlocked) and copies every message into the local store. The import is safe to rerun, since messages already stored are skipped.
+
+That makes Signal Desktop's history the limit. The import reaches back as far as Desktop's history does, typically to when you linked Desktop, and messages that exist only on your phone can't be reached. To check how far back you got, run `signal-mcp store-stats` and look at `Oldest`. To pick up messages Desktop received later, run `signal-mcp sync-desktop`.
+
+The import needs sqlcipher built on SQLite 3.38 or newer, because Desktop's schema uses the `->>` JSON operator. Older builds fail with `malformed database schema (messages) - near ">"`. The installer checks for this before importing, and on macOS it installs Homebrew's current sqlcipher, which signal-mcp prefers over an older copy in `/usr/local/bin`.
 
 ## Choose whose account the agent uses
 

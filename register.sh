@@ -24,9 +24,12 @@ command -v signal-cli >/dev/null || { echo "error: signal-cli not on PATH" >&2; 
 # NOTE: signal-mcp always picks the first account signal-cli knows about, so a
 # second account under the same home directory would silently be ignored (or
 # worse, win). One account per home; use the Docker setup to run both.
-if signal-cli listAccounts 2>/dev/null | grep -q '+'; then
+# NOTE: read the file rather than run `signal-cli listAccounts`, which blocks
+# forever on the account lock while a signal-cli daemon is running.
+accounts="$HOME/.local/share/signal-cli/data/accounts.json"
+if grep -qs '"number" *: *"+' "$accounts"; then
   echo "error: signal-cli already has an account here:" >&2
-  signal-cli listAccounts >&2
+  grep -o '"number" *: *"+[0-9]*"' "$accounts" >&2
   echo "signal-mcp only uses one account per home directory; run the bot in Docker instead." >&2
   exit 1
 fi
