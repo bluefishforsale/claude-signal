@@ -1,0 +1,39 @@
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  shellcheck:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: shellcheck -x *.sh
+
+  install:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+      - if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y qrencode
+      # No account in CI, so only the install path runs. A second run proves idempotence.
+      - run: ./install.sh --no-link --no-service --no-claude
+      - run: ./install.sh --no-link --no-service --no-claude
+      - run: |
+          export PATH="$HOME/.local/bin:$PATH"
+          signal-cli --version
+          signal-mcp --version | grep -F "$(. ./versions.env && echo "$SIGNAL_MCP_VERSION")"
+
+  docker:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: docker compose build
+      - run: docker compose run --rm --no-deps signal sh -c 'signal-cli --version && signal-mcp --version'

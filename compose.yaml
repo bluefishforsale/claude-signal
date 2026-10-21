@@ -1,0 +1,15 @@
+services:
+  signal:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile
+    platform: linux/amd64
+    container_name: claude-signal
+    hostname: claude-signal
+    restart: unless-stopped
+    volumes:
+      - signal-data:/home/signal/.local/share
+      - ${HOME}/Downloads/signal-attachments:/home/signal/Downloads/signal-attachments
+
+volumes:
+  signal-data:
