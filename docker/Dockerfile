@@ -1,4 +1,6 @@
 # One long-running container owns the signal-cli daemon and the message store.
+# It runs the daemon rather than `signal-mcp receive --watch`, because the
+# watcher stops the daemon on every poll and MCP tools then fail.
 # MCP clients attach with `docker exec -i claude-signal signal-mcp serve`
 # because upstream hardcodes the daemon at localhost:7583 and spawns signal-cli
 # as a subprocess, so a split daemon/server pair can't work.
@@ -46,4 +48,4 @@ USER signal
 WORKDIR /home/signal
 VOLUME ["/home/signal/.local/share"]
 
-CMD ["signal-mcp", "receive", "--watch"]
+CMD ["signal-mcp", "daemon"]

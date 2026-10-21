@@ -24,8 +24,8 @@ jobs:
       - if: runner.os == 'Linux'
         run: sudo apt-get update && sudo apt-get install -y qrencode
       # No account in CI, so only the install path runs. A second run proves idempotence.
-      - run: ./install.sh --no-link --no-service --no-claude
-      - run: ./install.sh --no-link --no-service --no-claude
+      - run: ./install.sh --no-link --no-claude --no-desktop
+      - run: ./install.sh --no-link --no-claude --no-desktop
       - run: |
           export PATH="$HOME/.local/bin:$PATH"
           signal-cli --version

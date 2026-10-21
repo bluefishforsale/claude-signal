@@ -24,11 +24,13 @@ cd claude-signal
 ./install.sh
 ```
 
-That installs signal-cli and signal-mcp, prints a QR code to link your Signal account, starts a background service so messages are captured even while Claude isn't running, and registers the server with both Claude Code and Claude Desktop (if Desktop is installed). Restart whichever you use and ask it to "check my Signal messages".
+That installs signal-cli and signal-mcp, prints a QR code to link your Signal account, and registers the server with both Claude Code and Claude Desktop (if Desktop is installed). Restart whichever you use and ask it to "check my Signal messages".
 
 The installer is safe to rerun, since every step checks whether it's already done. Its flags:
 
-`--readonly` registers the server with `SIGNAL_MCP_READONLY=1`, which hides every tool that sends, edits, deletes, or changes settings. `--name DEVICE` sets the name your phone shows under Linked devices (defaults to the hostname). `--no-link`, `--no-service`, `--no-claude`, and `--no-desktop` skip those steps, for example if you only want the CLI.
+`--readonly` registers the server with `SIGNAL_MCP_READONLY=1`, which hides every tool that sends, edits, deletes, or changes settings. `--name DEVICE` sets the name your phone shows under Linked devices (defaults to the hostname). `--no-link`, `--no-claude`, and `--no-desktop` skip those steps, for example if you only want the CLI.
+
+`--service` also installs signal-mcp's background capture service, which records messages while Claude isn't running. It's off by default because in signal-mcp 1.43.3 it breaks the MCP server. With the service installed, the server refuses to start signal-cli's daemon, and the service's watcher stops any daemon it finds every few seconds, so every tool that needs the daemon (sending, contacts, groups) fails with "signal-cli daemon not running". Without the service, the server starts the daemon itself the first time Claude needs it, and Signal's servers queue messages for an offline linked device and deliver them when it next connects (within Signal's retention window, which is limited), so the cost is mainly that messages aren't in local search until Claude has run. `./uninstall.sh` removes the service if you installed it.
 
 ## When something's off
 
@@ -37,6 +39,8 @@ The installer is safe to rerun, since every step checks whether it's already don
 ```
 
 This runs signal-mcp's own `signal-mcp doctor` (signal-cli, account, daemon, message capture), then checks that Claude Code and Claude Desktop each have the `signal` server registered, and adds it to whichever one is missing it. It's the fix if you installed Desktop after running the installer, or if a config got reset. It never touches an existing `signal` entry, so a server you've configured by hand stays as you left it. Any registration it adds has full access, unless you pass `--readonly`.
+
+Two of upstream's checks give misleading results with this setup. "Daemon reachable" fails until Claude has used the server once, because nothing starts the daemon before then. Once the daemon is running, "Receive round-trip works" fails with "Receive command cannot be used if messages are already being received", because the check asks signal-cli for messages the daemon is already receiving. Claude's own message tools work fine either way.
 
 ## Choose whose account the agent uses
 
@@ -125,7 +129,7 @@ There's one install detail worth knowing if you fork this. `uv tool install -c c
 
 ## Docker (advanced)
 
-The Docker setup is for headless boxes, machines with CPUs the native build can't run on, and running a bot number alongside your linked account. A single container runs signal-cli's daemon and the background message capture, and Claude attaches to it with `docker exec`. You can't split the daemon and the MCP server into separate containers, because signal-mcp hardcodes the daemon at `localhost:7583` and starts signal-cli itself.
+The Docker setup is for headless boxes, machines with CPUs the native build can't run on, and running a bot number alongside your linked account. A single container runs signal-cli's daemon, and Claude attaches to it with `docker exec`. You can't split the daemon and the MCP server into separate containers, because signal-mcp hardcodes the daemon at `localhost:7583` and starts signal-cli itself.
 
 ```bash
 docker compose build
@@ -134,7 +138,7 @@ docker compose up -d
 claude mcp add -s user signal -- docker exec -i claude-signal signal-mcp serve
 ```
 
-Link or register before `up -d`, since the capture service needs an account to start. Signal data lives in the `signal-data` Docker volume, and attachments land in `~/Downloads/signal-attachments` on the host. The image is amd64 only, because signal-cli bundles libsignal for x86_64 Linux only. On Apple Silicon it runs under emulation, which works but is slow to start.
+Link or register before `up -d`, since the daemon needs an account to start. Signal data lives in the `signal-data` Docker volume, and attachments land in `~/Downloads/signal-attachments` on the host. The image is amd64 only, because signal-cli bundles libsignal for x86_64 Linux only. On Apple Silicon it runs under emulation, which works but is slow to start.
 
 If you're running this next to a native install, give it its own MCP name, e.g. `claude mcp add -s user signal-bot -- docker exec -i claude-signal signal-mcp serve`.
 
@@ -144,7 +148,7 @@ If you're running this next to a native install, give it its own MCP name, e.g. 
 ./uninstall.sh
 ```
 
-This removes the background service, the Claude Code and Claude Desktop registrations (only if they still point at this install), signal-mcp, and the installer's copy of signal-cli. It deliberately leaves your Signal keys and message history in place and prints where they are, so deleting them is your call. Then unlink the device from your phone under Settings, then Linked devices. For Docker, `docker compose down` stops it, and `docker compose down -v` also deletes the account and history volume.
+This stops and deletes the background service if there is one (plus any signal-cli daemon it or Claude left running), the Claude Code and Claude Desktop registrations (only if they still point at this install), signal-mcp, and the installer's copy of signal-cli. It deliberately leaves your Signal keys and message history in place and prints where they are, so deleting them is your call. Then unlink the device from your phone under Settings, then Linked devices. For Docker, `docker compose down` stops it, and `docker compose down -v` also deletes the account and history volume.
 
 ## License
 

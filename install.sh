@@ -10,20 +10,20 @@ here="$(cd "$(dirname "$0")" && pwd)"
 # shellcheck source=lib.sh
 . "$here/lib.sh"
 
-do_link=1 do_service=1 do_claude=1 do_desktop=1 readonly_mode=0
+do_link=1 do_service=0 do_claude=1 do_desktop=1 readonly_mode=0
 device_name="$(hostname -s)" bot_number="" voice=()
 
 usage() {
   cat <<EOF
 usage: $0 [--name DEVICE] [--bot-number +E164 [--voice]] [--readonly]
-          [--no-link] [--no-service] [--no-claude] [--no-desktop]
+          [--service] [--no-link] [--no-claude] [--no-desktop]
 
   --name DEVICE   linked-device name on your phone, or the bot's profile name (default: $device_name)
   --bot-number N  register N as the agent's own Signal account instead of linking yours
   --voice         with --bot-number, get the verification code by voice call (landlines)
   --readonly      register the MCP server with SIGNAL_MCP_READONLY=1 (no send/edit/delete)
+  --service       install signal-mcp's background capture service (see README first)
   --no-link       skip linking or registering a Signal account
-  --no-service    skip the background message-capture service
   --no-claude     skip registering the server with Claude Code
   --no-desktop    skip adding the server to Claude Desktop (macOS)
 EOF
@@ -36,7 +36,7 @@ while (($#)); do
     --voice) voice=(--voice) ;;
     --readonly) readonly_mode=1 ;;
     --no-link) do_link=0 ;;
-    --no-service) do_service=0 ;;
+    --service) do_service=1 ;;
     --no-claude) do_claude=0 ;;
     --no-desktop) do_desktop=0 ;;
     -h|--help) usage; exit 0 ;;
@@ -124,6 +124,10 @@ if ((do_link)); then
     "$here/link.sh" "$device_name"
   fi
 fi
+# NOTE: off by default. In signal-mcp 1.43.3, once the service is installed the
+# MCP server refuses to start a daemon (client.py ensure_daemon) while the
+# watcher stops any daemon on every poll, so every daemon-backed tool fails with
+# "signal-cli daemon not running". Flip the default once upstream fixes that.
 ((do_service)) && signal-mcp install-service
 ((do_claude)) && register_claude "$readonly_mode"
 ((do_desktop)) && register_desktop "$readonly_mode"
