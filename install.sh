@@ -148,7 +148,10 @@ import_history() {
     return
   fi
   log "Importing message history from Signal Desktop (macOS asks for Keychain access; click Allow)"
-  signal-mcp import-desktop
+  # Optional and rerunnable, so a failure (most often the Keychain prompt timing
+  # out after 30s unanswered) shouldn't stop the Claude registrations after it.
+  signal-mcp import-desktop ||
+    warn "history import failed; rerun it any time with: signal-mcp import-desktop"
 }
 
 case "$(uname -s)" in
