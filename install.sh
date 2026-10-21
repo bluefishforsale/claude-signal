@@ -1,29 +1,22 @@
 #!/usr/bin/env bash
 # One idempotent entry point that gets signal-cli and signal-mcp onto a Mac or
-# Linux box at audited versions and wires them into Claude Code. Safe to rerun:
-# every step checks whether it's already done.
+# Linux box at audited versions and wires them into Claude Code and Claude
+# Desktop. Safe to rerun: every step checks whether it's already done.
 set -euo pipefail
 
 here="$(cd "$(dirname "$0")" && pwd)"
 # shellcheck source=versions.env
 . "$here/versions.env"
+# shellcheck source=lib.sh
+. "$here/lib.sh"
 
-# Our own files follow each OS's convention. signal-cli and signal-mcp keep
-# their data in ~/.local/share on both, which upstream hardcodes.
-bin_dir="$HOME/.local/bin"
-case "$(uname -s)" in
-  Darwin) data_dir="$HOME/Library/Application Support/claude-signal" ;;
-  *) data_dir="${XDG_DATA_HOME:-$HOME/.local/share}/claude-signal" ;;
-esac
-venv="$data_dir/venv"
-
-do_link=1 do_service=1 do_claude=1 readonly_mode=0
+do_link=1 do_service=1 do_claude=1 do_desktop=1 readonly_mode=0
 device_name="$(hostname -s)" bot_number="" voice=()
 
 usage() {
   cat <<EOF
 usage: $0 [--name DEVICE] [--bot-number +E164 [--voice]] [--readonly]
-          [--no-link] [--no-service] [--no-claude]
+          [--no-link] [--no-service] [--no-claude] [--no-desktop]
 
   --name DEVICE   linked-device name on your phone, or the bot's profile name (default: $device_name)
   --bot-number N  register N as the agent's own Signal account instead of linking yours
@@ -32,6 +25,7 @@ usage: $0 [--name DEVICE] [--bot-number +E164 [--voice]] [--readonly]
   --no-link       skip linking or registering a Signal account
   --no-service    skip the background message-capture service
   --no-claude     skip registering the server with Claude Code
+  --no-desktop    skip adding the server to Claude Desktop (macOS)
 EOF
 }
 
@@ -44,15 +38,12 @@ while (($#)); do
     --no-link) do_link=0 ;;
     --no-service) do_service=0 ;;
     --no-claude) do_claude=0 ;;
+    --no-desktop) do_desktop=0 ;;
     -h|--help) usage; exit 0 ;;
     *) usage >&2; exit 2 ;;
   esac
   shift
 done
-
-log() { printf '==> %s\n' "$*"; }
-warn() { printf 'warning: %s\n' "$*" >&2; }
-die() { printf 'error: %s\n' "$*" >&2; exit 1; }
 
 install_signal_cli_macos() {
   command -v brew >/dev/null || die "Homebrew is required on macOS: https://brew.sh"
@@ -114,21 +105,6 @@ install_signal_mcp() {
   ln -sf "$venv/bin/signal-mcp" "$bin_dir/signal-mcp"
 }
 
-register_claude() {
-  if ! command -v claude >/dev/null; then
-    warn "claude not on PATH, skipping Claude Code registration"
-    return
-  fi
-  if claude mcp get signal >/dev/null 2>&1; then
-    log "Claude Code already has an MCP server named 'signal', leaving it alone"
-    return
-  fi
-  local env_args=()
-  ((readonly_mode)) && env_args=(-e SIGNAL_MCP_READONLY=1)
-  claude mcp add -s user ${env_args[@]+"${env_args[@]}"} signal -- "$bin_dir/signal-mcp" serve
-  log "Registered with Claude Code; restart it and ask \"check my Signal messages\""
-}
-
 case "$(uname -s)" in
   Darwin) install_signal_cli_macos ;;
   Linux) install_signal_cli_linux ;;
@@ -149,6 +125,7 @@ if ((do_link)); then
   fi
 fi
 ((do_service)) && signal-mcp install-service
-((do_claude)) && register_claude
+((do_claude)) && register_claude "$readonly_mode"
+((do_desktop)) && register_desktop "$readonly_mode"
 
-log "Done. Run 'signal-mcp doctor' to check every piece."
+log "Done. Run ./doctor.sh to check every piece."

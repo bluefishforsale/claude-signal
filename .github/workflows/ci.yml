@@ -30,6 +30,8 @@ jobs:
           export PATH="$HOME/.local/bin:$PATH"
           signal-cli --version
           signal-mcp --version | grep -F "$(. ./versions.env && echo "$SIGNAL_MCP_VERSION")"
+      - run: ./uninstall.sh
+      - run: test ! -e "$HOME/.local/bin/signal-mcp"
 
   docker:
     runs-on: ubuntu-latest

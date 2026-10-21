@@ -24,11 +24,19 @@ cd claude-signal
 ./install.sh
 ```
 
-That installs signal-cli and signal-mcp, prints a QR code to link your Signal account, starts a background service so messages are captured even while Claude isn't running, and registers the server with Claude Code. Restart Claude Code and ask it to "check my Signal messages". `signal-mcp doctor` checks each piece if something seems off.
+That installs signal-cli and signal-mcp, prints a QR code to link your Signal account, starts a background service so messages are captured even while Claude isn't running, and registers the server with both Claude Code and Claude Desktop (if Desktop is installed). Restart whichever you use and ask it to "check my Signal messages".
 
 The installer is safe to rerun, since every step checks whether it's already done. Its flags:
 
-`--readonly` registers the server with `SIGNAL_MCP_READONLY=1`, which hides every tool that sends, edits, deletes, or changes settings. `--name DEVICE` sets the name your phone shows under Linked devices (defaults to the hostname). `--no-link`, `--no-service`, and `--no-claude` skip those steps, for example if you only want the CLI.
+`--readonly` registers the server with `SIGNAL_MCP_READONLY=1`, which hides every tool that sends, edits, deletes, or changes settings. `--name DEVICE` sets the name your phone shows under Linked devices (defaults to the hostname). `--no-link`, `--no-service`, `--no-claude`, and `--no-desktop` skip those steps, for example if you only want the CLI.
+
+## When something's off
+
+```bash
+./doctor.sh
+```
+
+This runs signal-mcp's own `signal-mcp doctor` (signal-cli, account, daemon, message capture), then checks that Claude Code and Claude Desktop each have the `signal` server registered, and adds it to whichever one is missing it. It's the fix if you installed Desktop after running the installer, or if a config got reset. It never touches an existing `signal` entry, so a server you've configured by hand stays as you left it. Any registration it adds has full access, unless you pass `--readonly`.
 
 ## Choose whose account the agent uses
 
@@ -62,7 +70,9 @@ Both options can live on one machine, but not under the same home directory. sig
 
 ## Claude Desktop
 
-Add this to `~/Library/Application Support/Claude/claude_desktop_config.json`, using your real home path (Desktop doesn't expand `~`):
+On macOS the installer (and `./doctor.sh`) adds the server to `~/Library/Application Support/Claude/claude_desktop_config.json` for you. It keeps every other server in that file, saves the previous version as `claude_desktop_config.json.bak-claude-signal`, and uses the absolute path to `signal-mcp`, because Desktop runs servers with a minimal `PATH` and doesn't expand `~`. Quit and reopen Desktop afterwards to load it. If the file isn't valid JSON, the installer stops and leaves it alone rather than guessing.
+
+The entry it writes looks like this, in case you'd rather manage it yourself (`--no-desktop` skips the automatic step):
 
 ```json
 {
@@ -75,7 +85,7 @@ Add this to `~/Library/Application Support/Claude/claude_desktop_config.json`, u
 }
 ```
 
-For read-only, add `"env": {"SIGNAL_MCP_READONLY": "1"}` next to `args`.
+With `--readonly` it also gets `"env": {"SIGNAL_MCP_READONLY": "1"}`.
 
 ## Where things go
 
@@ -134,7 +144,7 @@ If you're running this next to a native install, give it its own MCP name, e.g. 
 ./uninstall.sh
 ```
 
-This removes the background service, the Claude Code registration, signal-mcp, and the installer's copy of signal-cli. It deliberately leaves your Signal keys and message history in place and prints where they are, so deleting them is your call. Then unlink the device from your phone under Settings, then Linked devices. For Docker, `docker compose down` stops it, and `docker compose down -v` also deletes the account and history volume.
+This removes the background service, the Claude Code and Claude Desktop registrations (only if they still point at this install), signal-mcp, and the installer's copy of signal-cli. It deliberately leaves your Signal keys and message history in place and prints where they are, so deleting them is your call. Then unlink the device from your phone under Settings, then Linked devices. For Docker, `docker compose down` stops it, and `docker compose down -v` also deletes the account and history volume.
 
 ## License
 
